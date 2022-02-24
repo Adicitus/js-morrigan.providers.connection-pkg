@@ -1,0 +1,26 @@
+{
+  "name": "@adicitus/morrigan.server.providers.connection",
+  "version": "1.0.11",
+  "description": "Server-side connections provider for the Morrigan management system.",
+  "main": "server.js",
+  "scripts": {
+    "test": "mocha --exit"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/adicitus/js-connectionprovider-pkg.git"
+  },
+  "keywords": [
+    "morrigan"
+  ],
+  "author": "Joakim Olsson <joakim.olsson@adicitus.cloud>",
+  "license": "ISC",
+  "bugs": {
+    "url": "https://github.com/adicitus/js-connectionprovider-pkg/issues"
+  },
+  "homepage": "https://github.com/adicitus/js-connectionprovider-pkg#readme",
+  "dependencies": {
+    "luxon": "^2.3.0",
+    "uuid": "^8.3.2"
+  }
+}
