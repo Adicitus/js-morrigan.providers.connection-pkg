@@ -80,6 +80,20 @@ async function cleanup (connectionId) {
     }
 }
 
+/**
+ * WebSocket connection endpoint.
+ * 
+ * This is the heart of Morrigan.
+ * 
+ * The endpoint expects a valid client authentication token provided as the origin of the connection.
+ * 
+ * If a valid token is not provided the connection will be closed.
+ * 
+ * The resulting connection will be used to send and receive messages as JSON strings.
+ * 
+ * @param {Object} ws WebSocket Connection. 
+ * @param {Object} request Express request object.
+ */
 async function ep_wsConnect (ws, request) {
     
     var heartBeatCheck = null
