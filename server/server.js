@@ -343,7 +343,7 @@ module.exports.onShutdown = async () => {
  * Adds a callable object to be called when the connection is accepted and the
  * connection record has been commited the DB.
  * 
- * @param {Object} callback Callable object.
+ * @param {Object} callback Callable object to call when a connection is authenticated and the record committed.
  */
 module.exports.onConnect = (callback) => {
     callbacks.onConnect.push(callback)
@@ -356,12 +356,17 @@ module.exports.onConnect = (callback) => {
  * If the record is modified at this point, those changes will be committed
  * to the DB.
  * 
- * @param {Object} callback Callable object.
+ * @param {Object} callback Callable object to call once a connection is authenticated.
  */
 module.exports.onAuthenticate = (callback) => {
     callbacks.onAuthenticate.push(callback)
 }
 
+/**
+ * Adds a callable object to be called when a connection has ended.
+ * 
+ * @param {Object} callback Callable object. 
+ */
 module.exports.onDisconnect = (callback) => {
     callbacks.onDisconnect.push(callback)
 }
