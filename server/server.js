@@ -89,6 +89,9 @@ async function cleanup (connectionId) {
  * 
  * If a valid token is not provided the connection will be closed.
  * 
+ * If the connection origin token is validated, a 'connection.state' message
+ * with the value 'accepted' will be sent to the client.  
+ * 
  * The resulting connection will be used to send and receive messages as JSON strings.
  * 
  * @param {Object} ws WebSocket Connection. 
@@ -108,9 +111,6 @@ async function ep_wsConnect (ws, request) {
 
     log(`Connection ${record.id} established from ${request.connection.remoteAddress}`)
     sockets[record.id]  = ws
-    for (let i in callbacks.onConnect) {
-        callbacks.onConnect[i](record, ws)
-    }
 
     let r = await coreEnv.providers.client.verifyToken(request.headers.origin)
 
@@ -230,11 +230,13 @@ async function ep_wsConnect (ws, request) {
             state: 'accepted'
         })
     )
-    ws.send(
-        JSON.stringify({
-            type: 'capability.report' 
-        })
-    )
+
+    /**
+     * Calling onConnect callbacks to let other providers react to the connection.
+     */
+    for (let i in callbacks.onConnect) {
+        callbacks.onConnect[i](record, ws)
+    }
 
     log(`Connection ${record.id} is ready.`)
 
@@ -337,10 +339,25 @@ module.exports.onShutdown = async () => {
     }
 }
 
+/**
+ * Adds a callable object to be called when the connection is accepted and the
+ * connection record has been commited the DB.
+ * 
+ * @param {Object} callback Callable object.
+ */
 module.exports.onConnect = (callback) => {
     callbacks.onConnect.push(callback)
 }
 
+/**
+ * Adds a callable object to be called when the connection is authenticated
+ * but before the connection record has been committed to the DB.
+ * 
+ * If the record is modified at this point, those changes will be committed
+ * to the DB.
+ * 
+ * @param {Object} callback Callable object.
+ */
 module.exports.onAuthenticate = (callback) => {
     callbacks.onAuthenticate.push(callback)
 }
