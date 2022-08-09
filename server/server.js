@@ -330,28 +330,7 @@ module.exports.endpoints = [
                             'application/json': {
                                 schema: {
                                     type: 'array',
-                                    items: {
-                                        type: 'object',
-                                        properties: {
-                                            id: {
-                                                type: 'string',
-                                                format: 'uuid'
-                                            },
-                                            clientAddress: {
-                                                type: 'string',
-                                                format: 'IP Address'
-                                            },
-                                            authenticated: {
-                                                type: 'bool'
-                                            },
-                                            isAlive: {
-                                                type: 'bool'
-                                            },
-                                            open: {
-                                                type: 'bool'
-                                            }
-                                        }
-                                    }
+                                    items: { $ref: '#/components/schemas/connection.connectionRecord' }
                                 }
                             }
                         }
@@ -370,7 +349,12 @@ module.exports.endpoints = [
             ],
             responses: {
                 200: {
-                    description: "Returns a connection with the given ID."
+                    description: "Returns a connection with the given ID.",
+                    content: {
+                        'application/json': {
+                            schema: { $ref: '#/components/schemas/connection.connectionRecord' }
+                        }
+                    }
                 },
                 204: {
                     description: "Nothing to return, no such connection."
@@ -383,6 +367,7 @@ module.exports.endpoints = [
             tags: ['Connection'],
             description: "Attempt to send a message via the connection with the given connectionId.",
             summary: "Attempt to send a message over a connection.",
+            requestBody: { $ref: '#/components/requestBodies/connection.send.message' },
             parameters: [
                 { $ref: '#/components/parameters/connectionId' }
             ],
@@ -527,6 +512,39 @@ module.exports.openapi = {
                     }
                 },
                 required: true
+            }
+        },
+        schemas: {
+            'connection.connectionRecord': {
+                type: 'object',
+                properties: {
+                    _id: {
+                        description: "Internal ID of the connection record.",
+                        type: 'string'
+                    },
+                    id: {
+                        description: "ID of this connection record.",
+                        type: 'string',
+                        format: 'uuid'
+                    },
+                    clientAddress: {
+                        description: 'Remote IP-address of the connecting client.',
+                        type: 'string',
+                        format: 'IP Address'
+                    },
+                    authenticated: {
+                        description: "Indicates whether the connecting client has been authenticated.",
+                        type: 'boolean'
+                    },
+                    isAlive: {
+                        description: "Indicates whether this connection is active.",
+                        type: 'boolean'
+                    },
+                    open: {
+                        description: "Indicates whether the connection endpoint is available for this connection.",
+                        type: 'boolean'
+                    }
+                }
             }
         }
     },
