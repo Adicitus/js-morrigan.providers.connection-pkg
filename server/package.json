@@ -1,6 +1,6 @@
 {
   "name": "@adicitus/morrigan.server.providers.connection",
-  "version": "1.0.12",
+  "version": "1.0.13",
   "description": "Server-side connections provider for the Morrigan management system.",
   "main": "server.js",
   "scripts": {

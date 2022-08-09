@@ -311,10 +311,132 @@ function ep_send(req, res) {
 module.exports.name = 'connection'
 
 module.exports.endpoints = [
-    {route: '/connect', method: 'ws', handler: ep_wsConnect},
-    {route: '/', method: 'get', handler: ep_getConnections},
-    {route: '/:connectionId', method: 'get', handler: ep_getConnections},
-    {route: '/:connectionId/send', method: 'post', handler: ep_send}
+    {route: '/connect', method: 'ws', handler: ep_wsConnect, openapi: {
+        get: {
+            tags: ['Connection'],
+            description: 'WebSocket connection endpoint.',
+            summary: "WebSocket connection endpoint"
+        }
+    }},
+    {route: '/', method: 'get', handler: ep_getConnections, openapi: {
+            get: {
+                tags: ['Connection'],
+                description: "Retrieve a list of connections.",
+                summary: "Retrieve list of all connections in the system",
+                responses: {
+                    200: {
+                        description: "Successfully list the connections. This will be an empty array if there are no connections.",
+                        content: {
+                            'application/json': {
+                                schema: {
+                                    type: 'array',
+                                    items: {
+                                        type: 'object',
+                                        properties: {
+                                            id: {
+                                                type: 'string',
+                                                format: 'uuid'
+                                            },
+                                            clientAddress: {
+                                                type: 'string',
+                                                format: 'IP Address'
+                                            },
+                                            authenticated: {
+                                                type: 'bool'
+                                            },
+                                            isAlive: {
+                                                type: 'bool'
+                                            },
+                                            open: {
+                                                type: 'bool'
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    },
+    {route: '/:connectionId', method: 'get', handler: ep_getConnections, openapi: {
+        get: {
+            tags: ['Connection'],
+            description: "Attempt to retrieve information about the connection with the given connectionId.",
+            summary: "Attempt to retrieve information about a given connection",
+            parameters: [
+                { $ref: '#/components/parameters/connectionId' }
+            ],
+            responses: {
+                200: {
+                    description: "Returns a connection with the given ID."
+                },
+                204: {
+                    description: "Nothing to return, no such connection."
+                }
+            }
+        }
+    }},
+    {route: '/:connectionId/send', method: 'post', handler: ep_send, openapi: {
+        post: {
+            tags: ['Connection'],
+            description: "Attempt to send a message via the connection with the given connectionId.",
+            summary: "Attempt to send a message over a connection.",
+            parameters: [
+                { $ref: '#/components/parameters/connectionId' }
+            ],
+            responses: {
+                200: {
+                    description: "Successully sent the message."
+                },
+                400: {
+                    description: "Failed to send the message due to invalid paramters.",
+                    content: {
+                        'application/json': {
+                            schema: {
+                                properties: {
+                                    status: {
+                                        description: `Status of the send request. This will be 'failed' in all cases.`,
+                                        type: 'string',
+                                        pattern: '^failed$'
+                                    },
+                                    reason: {
+                                        description: 'A more detailed, human-readable description of the failure.',
+                                        type: 'string'
+                                    }
+                                }
+                            },
+                            examples: {
+                                'Missing connection ID': { value: { status: 'failed', reason: 'No connectionId specified.' } },
+                                'Missing message': { value: { status: 'failed', reason: 'No message specified.' } },
+                                'Missing message type': { value: { status: 'failed', reason: 'No message type specified.' } }
+                            }
+                        }
+                    }
+                },
+                403: {
+                    description: "The user does not have 'send' privilege (function 'connection.send').",
+                    content: {
+                        'application/json': {
+                            schema: {
+                                status: {
+                                    description: `Status of the send request. This will be 'failed' in all cases.`,
+                                    type: 'string',
+                                    pattern: '^failed$'
+                                },
+                                reason: {
+                                    description: 'A more detailed, human-readable description of the failure.',
+                                    type: 'string'
+                                }
+                            },
+                            example: { status: 'failed', reason: 'Send not permitted.' } 
+                        }
+                    }
+                }
+            }
+        }
+    }}
 ]
 module.exports.functions = [
     'api',
@@ -372,3 +494,41 @@ module.exports.onDisconnect = (callback) => {
 }
 
 module.exports.send = send
+
+module.exports.openapi = {
+    components: {
+        parameters: {
+            'connectionId': {
+                description: "ID of a connection in the system.",
+                name: 'connectionId',
+                in: 'path',
+                required: true,
+                allowEmptyValue: false,
+                schema: {
+                    type: 'string',
+                    format: 'uuid'
+                }
+            }
+        },
+        requestBodies: {
+            'connection.send.message': {
+                description: "Message to send to a client connected via WebSocket. The exact format of the message depends on the intended message recipient, but all messages should include the 'type' property to indicate the recipient(s).",
+                content: {
+                    'application/json': {
+                        schema: {
+                            required: ['type'],
+                            properties: {
+                                type: {
+                                    description: 'Type of message to send',
+                                    type: 'string'
+                                }
+                            }
+                        }
+                    }
+                },
+                required: true
+            }
+        }
+    },
+    tags: [{ name: 'Connection', description: "WebSocket connections form the basis of communication in the system." }]
+}
