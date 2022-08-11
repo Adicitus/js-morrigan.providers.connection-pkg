@@ -112,11 +112,13 @@ async function ep_wsConnect (ws, request) {
     log(`Connection ${record.id} established from ${request.connection.remoteAddress}`)
     sockets[record.id]  = ws
 
-    let r = await coreEnv.providers.client.verifyToken(request.headers.origin)
+    let token = request.headers.origin
+    let r = await coreEnv.providers.client.verifyToken(token)
 
     if (r.state !== 'success') {
         log(`${record.id} failed authentication attempt. state: '${r.state}', reason: ${r.reason}`)
         log(`Client sent invalid token, closing connection`)
+        log(`${record.id} received token ${token}`, 'debug')
         cleanup(record.id)
         return
     }
