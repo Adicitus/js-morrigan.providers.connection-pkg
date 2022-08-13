@@ -5,7 +5,7 @@ module.exports = {
     name: 'connection',
 
     setup: (coreEnv) => {
-        connection = Connection(coreEnv.providers.client.getToke(), coreEnv.settings.reportUrl, coreEnv.log)
+        connection = Connection(coreEnv.providers.client.getToken(), coreEnv.settings.reportUrl, coreEnv.log)
     },
 
     /**
