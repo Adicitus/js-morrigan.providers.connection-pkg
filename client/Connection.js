@@ -189,6 +189,11 @@ function Connection(token, reportUrl, log, settings) {
     }
 
     this.disconnect = (e) => {
+        if (!_state.ws) {
+            // No WebSocket connection created, nothing to do.
+            return
+        }
+
         let connection = _state.ws
         log(e)
         this.alwaysReconnect = false
