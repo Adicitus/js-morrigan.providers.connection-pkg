@@ -16,6 +16,15 @@ module.exports = {
     },
 
     /**
+     * Sends a message to the server.
+     * 
+     * @param {object} message Message object to send. 
+     */
+    send: (message) => {
+        connection.send(message)
+    },
+
+    /**
      * Hook to be called when the client is shutting down.
      * @param {string} e 
      */
