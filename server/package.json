@@ -1,6 +1,6 @@
 {
   "name": "@adicitus/morrigan.server.providers.connection",
-  "version": "1.0.15",
+  "version": "2.0.0",
   "description": "Server-side connections provider for the Morrigan management system.",
   "main": "server.js",
   "scripts": {
@@ -21,6 +21,7 @@
   },
   "homepage": "https://github.com/adicitus/js-connectionprovider-pkg#readme",
   "dependencies": {
+    "@adicitus/jwtgenerator": "^1.0.1",
     "luxon": "^2.3.0",
     "uuid": "^8.3.2"
   },

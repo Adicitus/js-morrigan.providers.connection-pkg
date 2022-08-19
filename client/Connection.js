@@ -22,7 +22,8 @@ function Connection(token, reportUrl, log, settings) {
             connect: [],
             disconnect: [],
             message: []
-        }
+        },
+        http: (reportUrl.match(/^https/i)) ? require('https') : require('http')
     }
 
 
@@ -85,82 +86,136 @@ function Connection(token, reportUrl, log, settings) {
     this.connect = () => {
 
         let self = this
+        let traceId = Math.random().toString(16).split('.')[1]
 
-        log(`Connecting to '${_state.reportUrl}'`)
-
-        _state.ws = new WebSocket(_state.reportUrl, { origin: _state.token })
-
-        /**
-         * 
-         */
-        _state.ws.on('error', (e) => {
-            log(`Failed to contact server: ${e}`)
+        log(`Getting WebSocket authorization from ${_state.reportUrl}...`)
+        
+        let req = _state.http.request(_state.reportUrl, {
+            method: 'post',
+            headers: {
+                'Content-Type': 'application/json',
+                'Authorization': _state.token
+            }
         })
 
-        _state.ws.on('open', () => {
-            log(`Connection to server opened.`)
+        req.write(JSON.stringify({ idtoken: _state.token, traceId: traceId }))
 
-            for (const n in _state.handlers.connect) {
-                try {
-                    _state.handlers.connect[n](_state.ws)
-                } catch (e) {
-                    log(`Exception occured while processing 'connect' handlers: ${e}`)
-                }
-            }
-
-        })
-
-        _state.ws.on('message', (message) => {
-
-            try {
-                var msg = JSON.parse(message)
-            } catch (e) {
-                log(`Invalid message received from server (not valid JSON): ${message}`)
-                return
-            }
-
-            if (!msg.type) {
-                log(`Invalid message received from server (no type declaration): ${message}`)
-                return
-            }
-
-            let m = msg.type.match(/^(?<provider>[A-z0-9\-_]+)\.(?<message>[A-z0-9\-_.]+)$/)
-
-            if (!m) {
-                log(`Invalid message received from server (invalid type format): ${message}`)
-                return
-            }
-
-            _state.handlers.message.forEach(h => {
-                try {
-                    h(msg, _state.ws)
-                } catch (e) {
-                    log(`Exception occured while processing 'message' handlers: ${e}`)
-                }
-            })
-
-        })
-
-        _state.ws.on('close', (e) => {
-            log(`Connection to server closed`)
+        req.on('response', (res) => {
             
-            for (const n in _state.handlers.disconnect) {
+            log(`Started receiving response for Authorization request...`)
 
-                try {
-                    _state.handlers.disconnect[n](_state.ws)
-                } catch(e) {
-                    log(`Exception occured while processing 'disconnect' handlers: ${e}`)
+            res.setEncoding('utf8')
+            
+            res.on('data', (chunk) => {
+
+                if (res.statusCode !== 200) {
+                    log(`Received response with status ${res.statusCode} from ${_state.reportUrl}, indicating that we failed to retrieve an authorization token. Aborting connection.`, 'warn')
+                    return
                 }
-            }
 
-            if (self.alwaysReconnect) {
-                log(`Attempting to reconnect in 30 seconds: ${e}`)
-                self.nextConnectionAttempt = setTimeout(() => {
-                    self.nextConnectionAttempt = null
-                    self.connect()
-                }, self.reconnectIntervalSeconds * 1000)
-            }
+                let authToken = null
+                try {
+                    let responseRaw = chunk
+                    console.log(responseRaw)
+                    authToken = JSON.parse(responseRaw).token
+                } catch(e) {
+                    e._traceId = Math.random().toString(16).split('.')[1]
+                    log(`Unable to parse WebSocket authorization returned from server (trace ID ${e._traceId}): ${e.message}`, 'error')
+                    log(JSON.stringify(e), 'debug')
+                    return
+                }
+
+                let payloadRaw = authToken.split('.')[1]
+                let payloadString = Buffer.from(payloadRaw, 'base64').toString()
+                let payload = JSON.parse(payloadString)
+
+                log(payloadString, 'debug')
+
+                log(`Opening WebSocket connection to '${payload.reportUrl}'`)
+
+                _state.ws = new WebSocket(payload.reportUrl, { origin: authToken })
+
+                _state.ws.on('error', (e) => {
+                    log(`Failed to contact server: ${e}`)
+                })
+        
+                _state.ws.on('open', () => {
+                    log(`Connection to server opened.`)
+
+                    for (const n in _state.handlers.connect) {
+                        try {
+                            _state.handlers.connect[n](_state.ws)
+                        } catch (e) {
+                            log(`Exception occured while processing 'connect' handlers: ${e}`)
+                        }
+                    }
+        
+                })
+        
+                _state.ws.on('message', (message) => {
+        
+                    try {
+                        var msg = JSON.parse(message)
+                    } catch (e) {
+                        log(`Invalid message received from server (not valid JSON): ${message}`)
+                        return
+                    }
+        
+                    if (!msg.type) {
+                        log(`Invalid message received from server (no type declaration): ${message}`)
+                        return
+                    }
+        
+                    let m = msg.type.match(/^(?<provider>[A-z0-9\-_]+)\.(?<message>[A-z0-9\-_.]+)$/)
+        
+                    if (!m) {
+                        log(`Invalid message received from server (invalid type format): ${message}`)
+                        return
+                    }
+        
+                    _state.handlers.message.forEach(h => {
+                        try {
+                            h(msg, _state.ws)
+                        } catch (e) {
+                            log(`Exception occured while processing 'message' handlers: ${e}`)
+                        }
+                    })
+        
+                })
+        
+                _state.ws.on('close', (e) => {
+                    log(`Connection to server closed`)
+                    
+                    for (const n in _state.handlers.disconnect) {
+        
+                        try {
+                            _state.handlers.disconnect[n](_state.ws)
+                        } catch(e) {
+                            log(`Exception occured while processing 'disconnect' handlers: ${e}`)
+                        }
+                    }
+        
+                    if (self.alwaysReconnect) {
+                        log(`Attempting to reconnect in 30 seconds: ${e}`)
+                        self.nextConnectionAttempt = setTimeout(() => {
+                            self.nextConnectionAttempt = null
+                            self.connect()
+                        }, self.reconnectIntervalSeconds * 1000)
+                    }
+                })
+            })
         })
+        
+        req.on('error', error => {
+            error._traceId = traceId
+            log(`Failed to retrieve an authorization token for WebSocket connection due to an unexpected error (trace ID ${traceId}): ${error.message}`, 'error')
+            log(JSON.stringify(error), 'debug')
+        })
+
+        //req.write(JSON.stringify({ idtoken: _state.token, traceId: traceId }))
+        log(`Sending request to '${_state.reportUrl}' (trace ID ${traceId})...`)
+        req.end()
+
 
     }
 

@@ -19,7 +19,8 @@ module.exports = {
      * This key is not required and can be safely omitted. This will create a HTTP server that listens on port 3000.
      */
     http: {
-        port: 8080
+        port: 8080,
+        hostname: 'localhost'
     },
 
     /**
@@ -50,7 +51,7 @@ module.exports = {
     logger: {
         console: true,
         logDir: "/morrigan.server/dev/logs",
-        level: 'debug'
+        level: 'silly'
     },
 
     /**

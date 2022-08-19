@@ -1,12 +1,15 @@
 "use strict"
 
+const JWTGenerator = require('@adicitus/jwtgenerator')
 const { DateTime } = require('luxon')
 const {v4: uuidv4} = require('uuid')
 
 var coreEnv = null
 var log = null
+var tokens = null
 
 var connectionRecords = null
+var connectionTokenRecords = null
 var sockets = {}
 var heartbeats = {}
 
@@ -60,15 +63,21 @@ async function cleanup (connectionId) {
     let ws = sockets[connectionId]
     delete sockets[connectionId]
 
+    let closed = false
+
     if (ws && ws.readyState == 1) {
         ws.close()
+        closed = true
     }
     
-    let record = await connectionRecords.findOne({id: connectionId})
-    
+    let record = await connectionRecords.findOne({ id: connectionId })
+
     if (record) {
-        record.isAlive = false
+        record.alive = false
         record.open = false
+        if (closed) {
+            record.disconnected = DateTime.now()
+        }
 
         let heartBeatCheck = heartbeats[connectionId]
 
@@ -78,6 +87,91 @@ async function cleanup (connectionId) {
 
         await connectionRecords.replaceOne({id: connectionId}, record)
     }
+}
+
+/**
+ * WebSocket connection authorization endpoint.
+ * 
+ * Expects the body of the request to contain the identity token of a client.
+ * 
+ * Generates a connection token that can be passed in the origin field when
+ * connecting via WebSocket.
+ * 
+ * @param {object} req Request object
+ * @param {object} res Result object
+ */
+async function ep_wsConnectAuth(req, res) {
+
+    let idtoken = req.headers.authorization
+
+    res.setHeader('Content-Type', 'application/json')
+
+    if (!idtoken) {
+        res.status(400)
+        res.end(JSON.stringify({ state: 'requestError', reason: `No token provided.` }))
+    }
+
+    // Verify that the idenitity token is valid and retriee the client record:
+    let r = await coreEnv.providers.client.verifyToken(idtoken)
+    
+    if (r.state !== 'success') {
+        log(`Failed authentication attempt from ${req.connection.remoteAddress}. state: '${r.state}', reason: ${r.reason}`, 'info')
+        log(`${req.connection.remoteAddress} sent token '${idtoken}'`, 'debug')
+        res.status(403)
+        res.end(JSON.stringify(r))
+        return
+    }
+    let client = r.client
+    log(`Connection from ${req.connection.remoteAddress} authenticated as '${client.id}'.`, 'debug')
+
+    // Verify that the client is not currently in an active session:
+    let c = await connectionRecords.findOne({clientId: client.id})
+
+    if (c) {
+        if (c.open && DateTime.fromISO(c.timeout).diffNow().milliseconds >= 0) {
+            // If the client has an active connection abort this connection attempt:
+            log(`Client '${client.id}' is requesting a new connection token but already has an open connection (${c.id}, timout @ ${c.timeout}), rejecting token request.`, 'warn')
+            res.status(400)
+            res.end(JSON.stringify({state: 'requestError', reason: `client '${client.id}' already has an open connection ('${c.id}')`}))
+            return
+        }
+
+        let promises = []
+        // If the old connection is inactive, remove it.
+        promises.push(connectionRecords.deleteOne({id: c.id}))
+        promises.push(connectionTokenRecords.deleteOne({id: c.tokenId}))
+        await Promise.all(promises)
+    }
+
+    // TODO: Process connection details. Right now we only care about the token but in the future
+    // each client should be able to request more than one WebSocket connection, and each connection
+    // should be able to have different settings (like specifying that you want a 'stream' connection
+    // rather than a 'message'-based one).
+
+    // Generate a new connection connection token and record:
+    var record = {
+        id: uuidv4(),
+        clientId: client.id,
+        clientAddress: req.connection.remoteAddress,
+        connected: false,
+        alive: false,
+        open: true,
+        reportUrl: `${coreEnv.endpointUrl}/${module.exports.name}/connect`
+    }
+
+    record.reportUrl = `${coreEnv.endpointUrl}/${module.exports.name}/connect`
+
+    let tokenR = await tokens.newToken(record.id, { payload: { reportUrl: record.reportUrl } })
+    
+    record.timeout = tokenR.record.expires
+
+    log(`New connection provisioned (ID: ${record.id}, Token ID: ${tokenR.record.id})`, 'debug')
+
+    record.tokenId = tokenR.record.id
+    connectionRecords.insertOne(record)
+
+    res.status(200)
+    res.end(JSON.stringify({ state: 'success', token: tokenR.token }))
 }
 
 /**
@@ -98,65 +192,45 @@ async function cleanup (connectionId) {
  * @param {Object} request Express request object.
  */
 async function ep_wsConnect (ws, request) {
-    
+
     var heartBeatCheck = null
 
-    var record = {
-        id: uuidv4(),
-        clientAddress: request.connection.remoteAddress,
-        authenticated: false,
-        isAlive: true,
-        open: true
-    }
-
-    log(`Connection ${record.id} established from ${request.connection.remoteAddress}`)
-    sockets[record.id]  = ws
-
     let token = request.headers.origin
-    let r = await coreEnv.providers.client.verifyToken(token)
 
-    if (r.state !== 'success') {
-        log(`${record.id} failed authentication attempt. state: '${r.state}', reason: ${r.reason}`)
-        log(`Client sent invalid token, closing connection`)
-        log(`${record.id} received token ${token}`, 'debug')
-        cleanup(record.id)
+    let r = await tokens.verifyToken(token)
+
+    if (!r.success) {
+        log(`WebSocket connection from ${request.connection.remoteAddress} failed authentication. state: '${r.state}', reason: ${r.reason}`, 'warn')
+        log(`${request.connection.remoteAddress} sent token: ${JSON.stringify(token)}`, 'debug')
+        ws.close()
         return
+    } else {
+        log(`WebSocket connection from ${request.connection.remoteAddress} passed authentication (connectionId=${r.subject}).`, 'info')
     }
 
-    let client = r.client
-
-    log(`Connection ${record.id} authenticated as '${client.id}'.`)
-
-    let c = await connectionRecords.findOne({clientId: client.id})
-
-    if (c) {
-        // If the client has an active connection abort this connection attempt:
-        if (c.isAlive) {
-            log(`Client '${client.id}' is already active in connection ${c.id}. Closing this connection.`)
-            await cleanup(record.id)
-            return
-        }
-
-        // If the old connection is inactive, remove it.
-        connectionRecords.deleteOne({id: c.id})
-    }
-
-    record.authenticated = true
-    record.clientId = client.id
+    var record = await connectionRecords.findOne({id: r.subject})
+    record.alive = true
+    delete(record.timeout)
+    record.clientAddress = request.connection.remoteAddress
+    record.connected = DateTime.now().toISO()
     record.serverId = coreEnv.serverInfo.id
+    sockets[record.id] = ws
+    connectionRecords.replaceOne({id: record.id}, record)
+
+    log(`Connection ${record.id} established from ${request.connection.remoteAddress}.`)
+    log(`Connection ${record.id} authenticated as client '${record.clientId}'.`)
     
     for (let i in callbacks.onAuthenticate) {
         callbacks.onAuthenticate[i](record, ws)
     }
 
-    connectionRecords.insertOne(record)
-
     // Heartbeat monitor
-    heartBeatCheck = setInterval(() => {
-            if (!record.isAlive) {
+    heartBeatCheck = setInterval(async () => {
+            if (!record.alive) {
                 log(`Heartbeat missed by ${request.connection.remoteAddress}`)
+                await connectionRecords.replaceOne({id: record.id}, record)
             }
-            record.isAlive = false
+            record.alive = false
             ws.ping()
         },
         30000
@@ -164,9 +238,10 @@ async function ep_wsConnect (ws, request) {
 
     heartbeats[record.id] = heartBeatCheck
 
-    ws.on('pong', () => {
+    ws.on('pong', async () => {
         record.lastHearbeat = DateTime.now()
-        record.isAlive = true
+        record.alive = true
+        await connectionRecords.replaceOne({id: record.id}, record)
     })
 
     ws.on('message', (message) => {
@@ -249,7 +324,7 @@ async function ep_getConnections(req, res) {
     if (req.params) {
 
         let params = req.params
-
+        console.log(params)
         if (params.connectionId) {
             let c = connectionRecords.findOne({id: params.connectionId})
             if (c) {
@@ -313,11 +388,48 @@ function ep_send(req, res) {
 module.exports.name = 'connection'
 
 module.exports.endpoints = [
-    {route: '/connect', method: 'ws', handler: ep_wsConnect, openapi: {
+    {route: '/', method: 'post', handler: ep_wsConnectAuth, security: null, openapi: {
+        post: {
+            tags: ['Connection', 'Authentication'],
+            description: "Websocket connection authorization endpoint.",
+            summary: "Generate connection authorization tokens.",
+            responses: {
+                200: {
+                    description: "Authentication accepted, a connection token will be returned.",
+                    content: {
+                        'application/json': {
+                            type: 'object',
+                            schema: {
+                                properties: {
+                                    state: {
+                                        type: 'string',
+                                        pattern: '^success$'
+                                    },
+                                    token: {
+                                        type: 'string',
+                                        format: 'jwt'
+                                    }
+                                }
+                            }
+                        }
+                    }
+                },
+                400: {
+                    description: "Failed to process the request due to errors in the request. See the response for further details."
+                },
+                403: {
+                    description: "Client is not authorized to generate a connection token. See response for further details."
+                }
+            },
+            security: [{ '#/components/securitySchemes/morrigan.providers.connection.clientAuthentication': [] }]
+        }
+    }},
+    {route: '/connect', method: 'ws', handler: ep_wsConnect, security: null,  openapi: {
         get: {
             tags: ['Connection'],
             description: 'WebSocket connection endpoint.',
-            summary: "WebSocket connection endpoint"
+            summary: "WebSocket connection endpoint",
+            security: [{}]
         }
     }},
     {route: '/', method: 'get', handler: ep_getConnections, openapi: {
@@ -434,8 +546,12 @@ module.exports.functions = [
 module.exports.setup = async (env)  => {
     coreEnv = env
     log = env.log
+    
 
     connectionRecords = env.db.collection('morrigan.connections')
+    connectionTokenRecords = env.db.collection('morrigan.connections.tokens')
+
+    tokens = new JWTGenerator({id: env.serverInfo.id, tokenLifetime: {seconds: 60}, collection: connectionTokenRecords})
 }
 
 module.exports.onShutdown = async () => {
@@ -534,19 +650,52 @@ module.exports.openapi = {
                         type: 'string',
                         format: 'IP Address'
                     },
-                    authenticated: {
-                        description: "Indicates whether the connecting client has been authenticated.",
-                        type: 'boolean'
+                    clientId: {
+                        description: "ID of the client that requiisitioned this connection.",
+                        type: 'string',
+                        format: 'UUID'
                     },
-                    isAlive: {
+                    serverId: {
+                        description: "The ID of the server where this connection is avaialable.",
+                        type: 'string',
+                        format: 'uuid'
+                    },
+                    connected: {
+                        description: "Indicates whether the client has connected to this endpoint."
+                    },
+                    disconenceted: {
+                        description: "Indicates when the connection was ended."
+                    },
+                    alive: {
                         description: "Indicates whether this connection is active.",
                         type: 'boolean'
                     },
                     open: {
                         description: "Indicates whether the connection endpoint is available for this connection.",
                         type: 'boolean'
+                    },
+                    timeout: {
+                        description: 'Date and time when this connection will cease to be valid unless a connection is made.',
+                        type: 'string',
+                        format: 'ISO 8601 Datetime'
+                    },
+                    lastHeartbeat: {
+                        description: 'Date and time of the last heartbeat.',
+                        type: 'string',
+                        format: 'ISO 8601 Datetime'
+                    },
+                    reportUrl: {
+                        description: "The URL to which the client should connect when establishing the connection."
                     }
                 }
+            }
+        },
+        securitySchemes: {
+            'morrigan.providers.connection.clientAuthentication': {
+                description: "Authentication used by client to interact with the 'connection' API.",
+                type: 'http',
+                scheme: 'bearer',
+                bearerFormat: 'jwt'
             }
         }
     },
