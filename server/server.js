@@ -579,44 +579,6 @@ module.exports.onShutdown = async () => {
 }
 
 /**
- * Adds a callable object to be called when the connection is accepted and the
- * connection record has been commited the DB.
- * 
- * @param {Object} callback Callable object to call when a connection is authenticated and the record committed.
- * @deprecated since version 2.1.0, use .on method instead.
- */
-module.exports.onConnect = (callback) => {
-    log(`The '.onConnect' method is deprecated, please use .on('connect', callback) instead.`, 'warn')
-    callbacks.onConnect.push(callback)
-}
-
-/**
- * Adds a callable object to be called when the connection is authenticated
- * but before the connection record has been committed to the DB.
- * 
- * If the record is modified at this point, those changes will be committed
- * to the DB.
- * 
- * @param {Object} callback Callable object to call once a connection is authenticated.
- * @deprecated since version 2.1.0, use .on method instead.
- */
-module.exports.onAuthenticate = (callback) => {
-    log(`The '.onAuthenticate' method is deprecated, please use .on('authenticate', callback) instead.`, 'warn')
-    callbacks.authenticate.push(callback)
-}
-
-/**
- * Adds a callable object to be called when a connection has ended.
- * 
- * @param {Object} callback Callable object.
- * @deprecated since version 2.1.0, use .on method instead.
- */
-module.exports.onDisconnect = (callback) => {
-    log(`The '.onDisconnect' method is deprecated, please use .on('disconnect', callback) instead.`, 'warn')
-    callbacks.disconnect.push(callback)
-}
-
-/**
  * Add a handler for a given event on this provider.
  * 
  * @param {string} eventName Name of the event to add handler for.
