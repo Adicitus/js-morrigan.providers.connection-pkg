@@ -14,9 +14,23 @@ var sockets = {}
 var heartbeats = {}
 
 var callbacks = {
-    onConnect: [],
-    onAuthenticate: [],
-    onDisconnect: []
+    /**
+     * Callable objects to be called when the connection is accepted and the
+     * connection record has been commited the DB.
+     */
+    connect: [],
+    /**
+     * Callable objects to be called when the connection is authenticated
+     * but before the connection record has been committed to the DB.
+     * 
+     * If the record is modified at this point, those changes will be committed
+     * to the DB.
+     */
+    authenticate: [],
+    /**
+     * Callable objects to be called when a connection has ended.
+     */
+    disconnect: []
 }
 
 /**
@@ -220,8 +234,8 @@ async function ep_wsConnect (ws, request) {
     log(`Connection ${record.id} established from ${request.connection.remoteAddress}.`)
     log(`Connection ${record.id} authenticated as client '${record.clientId}'.`)
     
-    for (let i in callbacks.onAuthenticate) {
-        callbacks.onAuthenticate[i](record, ws)
+    for (let i in callbacks.authenticate) {
+        callbacks.authenticate[i](record, ws)
     }
 
     // Heartbeat monitor
@@ -294,8 +308,8 @@ async function ep_wsConnect (ws, request) {
             }
         }
 
-        for (let i in callbacks.onDisconnect) {
-            callbacks.onDisconnect[i](record, ws)
+        for (let i in callbacks.disconnect) {
+            callbacks.disconnect[i](record, ws)
         }
 
         cleanup(record.id)
@@ -311,8 +325,8 @@ async function ep_wsConnect (ws, request) {
     /**
      * Calling onConnect callbacks to let other providers react to the connection.
      */
-    for (let i in callbacks.onConnect) {
-        callbacks.onConnect[i](record, ws)
+    for (let i in callbacks.connect) {
+        callbacks.connect[i](record, ws)
     }
 
     log(`Connection ${record.id} is ready.`)
@@ -569,8 +583,10 @@ module.exports.onShutdown = async () => {
  * connection record has been commited the DB.
  * 
  * @param {Object} callback Callable object to call when a connection is authenticated and the record committed.
+ * @deprecated since version 2.1.0, use .on method instead.
  */
 module.exports.onConnect = (callback) => {
+    log(`The '.onConnect' method is deprecated, please use .on('connect', callback) instead.`, 'warn')
     callbacks.onConnect.push(callback)
 }
 
@@ -582,18 +598,52 @@ module.exports.onConnect = (callback) => {
  * to the DB.
  * 
  * @param {Object} callback Callable object to call once a connection is authenticated.
+ * @deprecated since version 2.1.0, use .on method instead.
  */
 module.exports.onAuthenticate = (callback) => {
-    callbacks.onAuthenticate.push(callback)
+    log(`The '.onAuthenticate' method is deprecated, please use .on('authenticate', callback) instead.`, 'warn')
+    callbacks.authenticate.push(callback)
 }
 
 /**
  * Adds a callable object to be called when a connection has ended.
  * 
- * @param {Object} callback Callable object. 
+ * @param {Object} callback Callable object.
+ * @deprecated since version 2.1.0, use .on method instead.
  */
 module.exports.onDisconnect = (callback) => {
-    callbacks.onDisconnect.push(callback)
+    log(`The '.onDisconnect' method is deprecated, please use .on('disconnect', callback) instead.`, 'warn')
+    callbacks.disconnect.push(callback)
+}
+
+/**
+ * Add a handler for a given event on this provider.
+ * 
+ * @param {string} eventName Name of the event to add handler for.
+ * @param {function} handler The handler to add.
+ */
+module.exports.on = (eventName, handler) => {
+    if (!Object.keys(callbacks).includes(eventName)) {
+        log(`Invalid event name specified: '${eventName}'`, 'error')
+        return
+    }
+
+    callbacks[eventName].push(handler)
+}
+
+/**
+ * REmove a handler for a given event on this provider.
+ * 
+ * @param {string} eventName Name of the event to remove handler for. 
+ * @param {function} handler The handler to remove
+ */
+module.exports.off = (eventName, handler) => {
+    if (!Object.keys(callbacks).includes(eventName)) {
+        log(`Invalid event name specified: '${eventName}'`, 'error')
+        return
+    }
+
+    callbacks[eventName] = callback[eventName].filter(v => v !== handler )
 }
 
 module.exports.send = send
