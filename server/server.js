@@ -338,7 +338,6 @@ async function ep_getConnections(req, res) {
     if (req.params) {
 
         let params = req.params
-        console.log(params)
         if (params.connectionId) {
             let c = connectionRecords.findOne({id: params.connectionId})
             if (c) {
@@ -557,8 +556,9 @@ module.exports.functions = [
     'connection.send'
 ]
 
-module.exports.setup = async (env)  => {
+module.exports.setup = async (env, providers)  => {
     coreEnv = env
+    coreEnv.providers = providers
     log = env.log
     
 
